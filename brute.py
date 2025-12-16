@@ -1,53 +1,66 @@
 #!/usr/bin/python3
 import requests
+import re
 
-print("DVWA BRUTEFORCE - SIMPLE VERSION")
+print("DVWA BRUTEFORCE - WITH BRUTE FORCE CSRF")
 print("="*50)
 
 s = requests.Session()
 
-# 1. Просто логинимся БЕЗ CSRF
+# 1. Логинимся (без CSRF если не нужно)
 print("[1] Logging in...")
 r = s.post("http://dvwa.local/login.php",
           data={'username':'admin','password':'password','Login':'Login'})
+print(f"Login OK, cookies: {dict(s.cookies)}")
 
-print(f"Login status: {r.status_code}")
+# 2. Ставим security low
+print("[2] Setting security low...")
+s.post("http://dvwa.local/security.php",
+      data={'security':'low','seclev_submit':'Submit'})
+
+# 3. ВАЖНО: Получаем страницу brute force чтобы взять ЕЕ CSRF токен
+print("[3] Getting brute force page CSRF token...")
+r = s.get("http://dvwa.local/vulnerabilities/brute/")
+
+# Ищем user_token НА brute force странице
+csrf_match = re.search(r'name="user_token" value="([^"]+)"', r.text)
+if csrf_match:
+    brute_csrf = csrf_match.group(1)
+    print(f"[OK] Brute force CSRF token: {brute_csrf[:10]}...")
+else:
+    print("[ERROR] No CSRF on brute force page!")
+    print("Page preview:", r.text[:300])
+    exit()
+
+# 4. Делаем ЗАПРОС С CSRF токеном
+print("\n[4] Making request WITH CSRF token...")
+test_url = f"http://dvwa.local/vulnerabilities/brute/?username=admin&password=password&Login=Login&user_token={brute_csrf}"
+
+r = s.get(test_url)
 print(f"Response size: {len(r.text)} chars")
 
-# Проверяем куки
-print(f"Cookies: {dict(s.cookies)}")
+# Анализируем ответ
+print("\n[5] Analyzing response...")
 
-# 2. Пробуем получить brute force страницу
-print("\n[2] Accessing brute force page...")
-r = s.get("http://dvwa.local/vulnerabilities/brute/")
-print(f"Brute page size: {len(r.text)} chars")
+# Убираем HTML теги
+clean_text = re.sub('<[^>]+>', ' ', r.text)
+clean_text = ' '.join(clean_text.split())
 
-# 3. ПРОБУЕМ ПАРОЛЬ
-print("\n[3] Testing password...")
-test_url = "http://dvwa.local/vulnerabilities/brute/?username=admin&password=password&Login=Login"
-r = s.get(test_url)
+print("CLEAN TEXT (first 300 chars):")
+print("-"*50)
+print(clean_text[:300])
+print("-"*50)
 
-print(f"Test response: {len(r.text)} chars")
-
-# ВЫВЕДЕМ ВЕСЬ ТЕКСТ БЕЗ HTML
-import re
-text_only = re.sub('<[^>]+>', ' ', r.text)
-text_only = ' '.join(text_only.split())
-
-print("\n" + "="*50)
-print("TEXT CONTENT OF PAGE:")
-print("="*50)
-print(text_only[:500])
-print("="*50)
-
-# 4. Если не ясно - сохраним HTML
-with open('test.html', 'w') as f:
-    f.write(r.text)
-print("\nFull HTML saved to: test.html")
-
-# 5. Ищем КЛЮЧЕВЫЕ СЛОВА
-print("\n[4] Searching for keywords...")
-keywords = ['Welcome', 'incorrect', 'error', 'success', 'protected', 'area', 'login', 'password']
-for word in keywords:
-    if word.lower() in r.text.lower():
-        print(f"Found '{word}' in response")
+# Ищем результат
+if 'Welcome to the password protected area' in r.text:
+    print("\n[SUCCESS] Password 'password' is CORRECT for 'admin'")
+elif 'Username and/or password incorrect' in r.text:
+    print("\n[FAILED] Password incorrect")
+else:
+    print("\n[UNKNOWN] Can't determine result")
+    print("Check test.html file for full response")
+    
+    # Сохраним для анализа
+    with open('brute_response.html', 'w') as f:
+        f.write(r.text)
+    print("Full response saved to brute_response.html")
