@@ -2,63 +2,160 @@
 import requests
 import re
 
-print("DVWA BRUTEFORCE - WITH BRUTE FORCE CSRF")
-print("="*50)
+print("="*70)
+print("DVWA BRUTEFORCE - COMPLETE DEBUG")
+print("="*70)
 
 s = requests.Session()
 
-# 1. Логинимся (без CSRF если не нужно)
-print("[1] Logging in...")
-r = s.post("http://dvwa.local/login.php",
-          data={'username':'admin','password':'password','Login':'Login'})
-print(f"Login OK, cookies: {dict(s.cookies)}")
-
-# 2. Ставим security low
-print("[2] Setting security low...")
-s.post("http://dvwa.local/security.php",
-      data={'security':'low','seclev_submit':'Submit'})
-
-# 3. ВАЖНО: Получаем страницу brute force чтобы взять ЕЕ CSRF токен
-print("[3] Getting brute force page CSRF token...")
-r = s.get("http://dvwa.local/vulnerabilities/brute/")
-
-# Ищем user_token НА brute force странице
-csrf_match = re.search(r'name="user_token" value="([^"]+)"', r.text)
-if csrf_match:
-    brute_csrf = csrf_match.group(1)
-    print(f"[OK] Brute force CSRF token: {brute_csrf[:10]}...")
-else:
-    print("[ERROR] No CSRF on brute force page!")
-    print("Page preview:", r.text[:300])
+# ====== ТЕСТ 1: Проверяем доступность ======
+print("\n[1] CONNECTION TEST")
+print("-"*40)
+try:
+    r = requests.get("http://dvwa.local/", timeout=5)
+    print(f"✓ DVWA доступна (Status: {r.status_code})")
+except:
+    print("✗ DVWA недоступна!")
     exit()
 
-# 4. Делаем ЗАПРОС С CSRF токеном
-print("\n[4] Making request WITH CSRF token...")
-test_url = f"http://dvwa.local/vulnerabilities/brute/?username=admin&password=password&Login=Login&user_token={brute_csrf}"
+# ====== ТЕСТ 2: Пробуем залогиниться ======
+print("\n[2] LOGIN TEST")
+print("-"*40)
+login_url = "http://dvwa.local/login.php"
 
-r = s.get(test_url)
-print(f"Response size: {len(r.text)} chars")
+# Вариант 1: Без CSRF
+r = s.post(login_url, data={'username':'admin','password':'password','Login':'Login'})
+print(f"Login без CSRF: {r.status_code}, {len(r.text)} chars")
 
-# Анализируем ответ
-print("\n[5] Analyzing response...")
+# Если не получилось, пробуем с CSRF
+if 'logout' not in r.text.lower():
+    print("  ↳ Пробуем с CSRF...")
+    r = s.get(login_url)
+    csrf_match = re.search(r'user_token" value="([^"]+)"', r.text)
+    if csrf_match:
+        csrf = csrf_match.group(1)
+        r = s.post(login_url, data={'username':'admin','password':'password',
+                                   'Login':'Login','user_token':csrf})
+        print(f"  Login с CSRF: {r.status_code}, {len(r.text)} chars")
 
-# Убираем HTML теги
-clean_text = re.sub('<[^>]+>', ' ', r.text)
-clean_text = ' '.join(clean_text.split())
-
-print("CLEAN TEXT (first 300 chars):")
-print("-"*50)
-print(clean_text[:300])
-print("-"*50)
-
-# Ищем результат
-if 'Welcome to the password protected area' in r.text:
-    print("\n[SUCCESS] Password 'password' is CORRECT for 'admin'")
-elif 'Username and/or password incorrect' in r.text:
-    print("\n[FAILED] Password incorrect")
+# Проверяем результат
+if 'logout' in r.text.lower():
+    print("✓ Успешно залогинены")
 else:
-    print("\n[UNKNOWN] Can't determine result")
-    print("Check test.html file for full response")
+    print("✗ Не удалось залогиниться")
+
+# ====== ТЕСТ 3: Смотрим cookies ======
+print("\n[3] COOKIES CHECK")
+print("-"*40)
+cookies = dict(s.cookies)
+print(f"Cookies: {cookies}")
+if 'PHPSESSID' in cookies and 'security' in cookies:
+    print("✓ Все нужные cookies есть")
+else:
+    print("✗ Не хватает cookies")
+
+# ====== ТЕСТ 4: Пробуем brute force модуль ======
+print("\n[4] BRUTE FORCE MODULE ACCESS")
+print("-"*40)
+brute_url = "http://dvwa.local/vulnerabilities/brute/"
+
+# Пробуем просто открыть страницу
+r = s.get(brute_url)
+print(f"Brute force page: {r.status_code}, {len(r.text)} chars")
+
+# Смотрим что на странице
+if len(r.text) < 1600:
+    print("✓ Страница brute force загружена (не страница логина)")
+else:
+    print("✗ Похоже на страницу логина, а не brute force")
+
+# ====== ТЕСТ 5: Ищем форму и CSRF ======
+print("\n[5] FORM ANALYSIS")
+print("-"*40)
+
+# Ищем форму
+form_match = re.search(r'<form[^>]*>.*?</form>', r.text, re.DOTALL)
+if form_match:
+    form_html = form_match.group(0)
+    print("✓ Форма найдена")
+    
+    # Ищем CSRF в форме
+    csrf_match = re.search(r'user_token" value="([^"]+)"', form_html)
+    if csrf_match:
+        csrf_token = csrf_match.group(1)
+        print(f"✓ CSRF token найден: {csrf_token[:15]}...")
+    else:
+        print("✗ CSRF token НЕ найден в форме")
+else:
+    print("✗ Форма не найдена")
+
+# Покажем HTML формы (первые 500 символов)
+print("\nФорма (первые 300 символов):")
+print("-"*40)
+if form_match:
+    print(form_match.group(0)[:300])
+print("-"*40)
+
+# ====== ТЕСТ 6: Пробуем отправить данные ======
+print("\n[6] TESTING PASSWORDS")
+print("-"*40)
+
+# Варианты запросов
+test_requests = []
+
+# Вариант A: Без CSRF
+test_requests.append(("Без CSRF", f"{brute_url}?username=admin&password=password&Login=Login"))
+
+# Вариант B: С CSRF если найден
+if 'csrf_token' in locals():
+    test_requests.append(("С CSRF", f"{brute_url}?username=admin&password=password&Login=Login&user_token={csrf_token}"))
+
+# Вариант C: Попробуем другого пользователя
+test_requests.append(("Пользователь gordonb", f"{brute_url}?username=gordonb&password=abc123&Login=Login"))
+
+for test_name, url in test_requests:
+    print(f"\n{test_name}:")
+    r = s.get(url)
+    print(f"  Response: {len(r.text)} chars")
+    
+    # Ищем ключевые слова
+    response_lower = r.text.lower()
+    
+    if 'welcome to the password protected area' in response_lower:
+        print("  ✓ УСПЕХ: 'Welcome to the password protected area'")
+        # Найдем и покажем полную строку
+        for line in r.text.split('\n'):
+            if 'Welcome' in line:
+                print(f"  Full: {line.strip()}")
+    elif 'username and/or password incorrect' in response_lower:
+        print("  ✗ ОШИБКА: 'Username and/or password incorrect'")
+    elif 'csrf' in response_lower:
+        print("  ⚠ CSRF ошибка")
+    else:
+        print("  ? Неизвестный ответ")
+        
+        # Покажем немного текста
+        clean = re.sub('<[^>]+>', ' ', r.text)
+        clean = ' '.join(clean.split())
+        if len(clean) > 50:
+            print(f"  Text: {clean[:100]}...")
+
+# ====== ТЕСТ 7: Сохраняем всё для анализа ======
+print("\n[7] SAVING FOR ANALYSIS")
+print("-"*40)
+with open('debug_brute_page.html', 'w') as f:
+    f.write(r.text)
+print("✓ Последняя страница сохранена в debug_brute_page.html")
+
+print("\n" + "="*70)
+print("DEBUG COMPLETE")
+print("="*70)
+
+print("\nРЕКОМЕНДАЦИИ:")
+print("1. Открой файл debug_brute_page.html в браузере")
+print("2. Посмотри как выглядит форма brute force")
+print("3. Если есть CSRF поле - используй его")
+print("4. Если нет - значит CSRF не требуется")
     
     # Сохраним для анализа
     with open('brute_response.html', 'w') as f:
