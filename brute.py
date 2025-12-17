@@ -2,47 +2,41 @@
 import requests
 import re
 
-print("START")
-
-# 1. Получаем главную страницу и CSRF токен
-r = requests.get("http://dvwa.local/login.php")
-csrf_match = re.search(r'user_token" value="([^"]+)"', r.text)
-if not csrf_match:
-    print("ERROR: No CSRF on login page")
-    exit()
-
-csrf_token = csrf_match.group(1)
-print(f"CSRF: {csrf_token}")
-
-# 2. Логинимся с токеном
 s = requests.Session()
-login_data = {
-    'username': 'admin',
-    'password': 'password',
-    'Login': 'Login',
-    'user_token': csrf_token
-}
 
-r = s.post("http://dvwa.local/login.php", data=login_data)
-print(f"Login: {r.status_code}")
+# 1. Логин (без CSRF)
+s.post("http://dvwa.local/login.php",
+      data={'username':'admin','password':'password','Login':'Login'})
 
-# 3. Security low
-s.post("http://dvwa.local/security.php", 
-       data={'security':'low','seclev_submit':'Submit'})
+# 2. Security
+s.post("http://dvwa.local/security.php",
+      data={'security':'low','seclev_submit':'Submit'})
 
-# 4. Пробуем brute force БЕЗ CSRF (на low не нужен)
+# 3. Пробуем получить brute force страницу
 brute_url = "http://dvwa.local/vulnerabilities/brute/"
-test_url = f"{brute_url}?username=admin&password=password&Login=Login"
+r = s.get(brute_url)
 
-print(f"\nTesting: {test_url}")
-r = s.get(test_url)
+print(f"Brute page: {len(r.text)} chars")
 
-# 5. Проверяем
-if 'Welcome to the password protected area' in r.text:
-    print("SUCCESS! Password 'password' works")
-    for line in r.text.split('\n'):
-        if 'Welcome' in line:
-            print(f"Proof: {line.strip()}")
+# 4. Ищем ВСЕ hidden поля
+print("\nSearching for ALL hidden inputs:")
+hidden_matches = re.findall(r'<input[^>]*type="hidden"[^>]*>', r.text)
+for hidden in hidden_matches:
+    print(f"  Found: {hidden}")
+
+# 5. Ищем ЛЮБОЙ токен
+token_match = re.search(r'name="([^"]+)" value="([^"]+)"', r.text)
+if token_match:
+    token_name, token_value = token_match.groups()
+    print(f"\nToken found: {token_name} = {token_value}")
+    
+    # Пробуем с этим токеном
+    test_url = f"{brute_url}?username=admin&password=password&Login=Login&{token_name}={token_value}"
+    r = s.get(test_url)
+    
+    if 'Welcome to the password protected area' in r.text:
+        print(f"\nSUCCESS with token {token_name}!")
+    else:
+        print(f"\nFailed even with token")
 else:
-    print("FAILED")
-    print("Response preview:", r.text[:200])
+    print("\nNo tokens found at all")
